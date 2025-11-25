@@ -1,0 +1,358 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum ConversationType {
+  DM
+  GROUP
+}
+
+enum ChannelType {
+  TEXT
+  VOICE
+  ANNOUNCEMENT
+  AI
+  VIDEO
+}
+
+enum CallMediaType {
+  VOICE
+  VIDEO
+}
+
+enum CallSessionStatus {
+  RINGING
+  ACTIVE
+  ENDED
+}
+
+enum CallParticipantStatus {
+  INVITED
+  JOINED
+  LEFT
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM_MONTHLY
+  PREMIUM_YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  PAST_DUE
+  UNPAID
+  EXPIRED
+}
+
+model User {
+  id            String          @id @default(cuid())
+  email         String          @unique
+  username      String          @unique
+  role          String          @default("USER")
+  isPremium     Boolean         @default(false)
+  displayName   String
+  passwordHash  String
+  status        String          @default("offline")
+  bio           String?         @db.Text
+  avatarUrl     String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  friendsInitiated Friendship[] @relation("initiator")
+  friendsTargeted  Friendship[] @relation("target")
+  refreshTokens RefreshToken[]
+  conversations ConversationParticipant[]
+  messages      Message[]
+  channelMessages ChannelMessage[]
+  notifications Notification[]
+  serversOwned  Server[]
+  serverMemberships ServerMembership[]
+  channels      Channel[] @relation("ChannelCreator")
+  callSessionsInitiated CallSession[] @relation("CallInitiator")
+  callParticipants CallParticipant[]
+  aiSessions    AiSession[]
+  auditLogs     AuditLog[]
+  createdInvites ServerInvite[] @relation("InviteCreator")
+  subscriptions Subscription[]
+}
+
+model RefreshToken {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  revokedAt  DateTime?
+  userAgent  String?
+  ipAddress  String?
+
+  @@index([userId])
+}
+
+model Friendship {
+  id           String           @id @default(cuid())
+  initiator    User             @relation("initiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  initiatorId  String
+  target       User             @relation("target", fields: [targetId], references: [id], onDelete: Cascade)
+  targetId     String
+  status       FriendshipStatus @default(PENDING)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([initiatorId, targetId])
+  @@index([targetId])
+}
+
+model Conversation {
+  id            String                     @id @default(cuid())
+  type          ConversationType           @default(DM)
+  title         String?
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  participants  ConversationParticipant[]
+  messages      Message[]
+}
+
+model ConversationParticipant {
+  id             String        @id @default(cuid())
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  role           String        @default("member")
+  lastReadAt     DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String
+  sender         User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderId       String
+  body           String        @db.Text
+  aiContext      Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([conversationId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  type      String
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AiSession {
+  id          String   @id @default(cuid())
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      String?
+  sessionKey  String?
+  prompt      String   @db.Text
+  response    String?  @db.Text
+  tokensUsed  Int      @default(0)
+  mode        String   @default("app")
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  latencyMs   Int?
+  chunkCount  Int?
+  avgChunkMs  Int?
+  safetyFlag  String?
+
+  @@index([sessionKey])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId    String?
+  action    String
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Server {
+  id          String             @id @default(cuid())
+  name        String
+  iconUrl     String?
+  owner       User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId     String
+  description String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  memberships ServerMembership[]
+  channels    Channel[]
+  callSessions CallSession[]
+  roles       ServerRole[]
+  invites     ServerInvite[]
+}
+
+model ServerMembership {
+  id        String   @id @default(cuid())
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+  roles     ServerMembershipRole[]
+
+  @@unique([serverId, userId])
+  @@index([userId])
+}
+
+model Channel {
+  id        String      @id @default(cuid())
+  server    Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId  String
+  name      String
+  topic     String?
+  type      ChannelType @default(TEXT)
+  createdBy User        @relation("ChannelCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdById String
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  messages  ChannelMessage[]
+  callSessions CallSession[]
+}
+
+model ChannelMessage {
+  id        String   @id @default(cuid())
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId String
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderId  String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([channelId])
+}
+
+model ServerRole {
+  id          String      @id @default(cuid())
+  server      Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId    String
+  name        String
+  description String?
+  permissions Json
+  isDefault   Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  memberships ServerMembershipRole[]
+
+  @@unique([serverId, name])
+}
+
+model ServerMembershipRole {
+  id            String           @id @default(cuid())
+  membership    ServerMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  membershipId  String
+  role          ServerRole       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId        String
+
+  @@unique([membershipId, roleId])
+  @@index([roleId])
+}
+
+model ServerInvite {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  server      Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId    String
+  createdBy   User     @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdById String
+  maxUses     Int?
+  uses        Int      @default(0)
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model CallSession {
+  id           String             @id @default(cuid())
+  channel      Channel            @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId    String
+  server       Server             @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId     String
+  initiator    User               @relation("CallInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  initiatorId  String
+  mediaType    CallMediaType
+  status       CallSessionStatus  @default(RINGING)
+  startedAt    DateTime           @default(now())
+  endedAt      DateTime?
+  endedReason  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  metadata     Json?
+  participants CallParticipant[]
+
+  @@index([channelId])
+  @@index([serverId])
+}
+
+model CallParticipant {
+  id         String                @id @default(cuid())
+  session    CallSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId  String
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  status     CallParticipantStatus @default(INVITED)
+  joinedAt   DateTime?
+  leftAt     DateTime?
+  muted      Boolean               @default(false)
+  videoMuted Boolean               @default(false)
+  qualityNotes String?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId               String             @unique
+  stripeCustomerId     String
+  stripeSubscriptionId String
+  plan                 SubscriptionPlan   @default(PREMIUM_MONTHLY)
+  status               SubscriptionStatus @default(ACTIVE)
+  currentPeriodEnd     DateTime
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+}
