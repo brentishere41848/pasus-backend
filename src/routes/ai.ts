@@ -1,10 +1,8 @@
 import { Router } from "express";
-import mysql from "mysql2/promise";
 import dotenv from "dotenv";
+import { pool } from "../db.js";
 
 dotenv.config();
-
-const pool = mysql.createPool(process.env.DATABASE_URL || "");
 
 const router = Router();
 

@@ -22,7 +22,7 @@ app.use("/api/servers", serverRoutes);
 app.use("/api/forum", forumRoutes);
 app.use("/api", aiRoutes);
 
-const PORT = process.env.PORT || 4000;
+const PORT = Number(process.env.PORT) || 4000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Pasus backend listening on ${PORT}`);
 });

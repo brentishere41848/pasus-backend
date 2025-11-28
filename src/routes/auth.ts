@@ -1,11 +1,9 @@
 import { Router } from "express";
 import { v4 as uuid } from "uuid";
-import mysql from "mysql2/promise";
 import dotenv from "dotenv";
+import { pool } from "../db.js";
 
 dotenv.config();
-
-const pool = mysql.createPool(process.env.DATABASE_URL || "");
 
 const router = Router();
 
@@ -29,10 +27,9 @@ router.post("/register", async (req, res) => {
     const id = uuid();
     const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
     await pool.query(
-      'INSERT INTO users (id,email,username,role,isPremium,displayName,passwordHash,status,bio,avatarUrl,accountStatus) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      [id, email, username, 'USER', 0, username, password, 'online', null, avatar, 'good']
+      'INSERT INTO users (id,email,username,displayName,role,isPremium,passwordHash,status,bio,avatarUrl,accountStatus,lastSeen,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW(),NOW())',
+      [id, email, username, username, 'USER', 0, password, 'online', null, avatar, 'good']
     );
-
     const [userRows] = await pool.query('SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt FROM users WHERE id=?', [id]);
     const user = (userRows as any[])[0];
     return res.json({ success: true, data: { token: 'session-placeholder', user } });
@@ -70,7 +67,7 @@ router.post("/login", async (req, res) => {
     }
 
     await pool.query('UPDATE users SET lastSeen=NOW(), status=? WHERE id=?', ['online', user.id]);
-    user.lastSeen = new Date();
+    user.lastSeen = new Date().toISOString();
     return res.json({ success: true, data: { token: 'session-placeholder', user } });
   } catch (err) {
     console.error(err);
