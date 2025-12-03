@@ -2,6 +2,8 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 import dotenv from "dotenv";
 import { pool } from "../db.js";
+import { fetchModerationState } from "../middleware/auth.js";
+import { getReasonText } from "../shared/moderation.js";
 
 dotenv.config();
 
@@ -30,9 +32,14 @@ router.post("/register", async (req, res) => {
       'INSERT INTO users (id,email,username,displayName,role,isPremium,passwordHash,status,bio,avatarUrl,accountStatus,lastSeen,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW(),NOW())',
       [id, email, username, username, 'USER', 0, password, 'online', null, avatar, 'good']
     );
+    await pool.query(
+      'INSERT INTO moderation_statuses (userId,currentStage,updatedAt) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE currentStage=currentStage',
+      [id, 'NONE']
+    );
     const [userRows] = await pool.query('SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt FROM users WHERE id=?', [id]);
     const user = (userRows as any[])[0];
-    return res.json({ success: true, data: { token: 'session-placeholder', user } });
+    const moderation = await fetchModerationState(id);
+    return res.json({ success: true, data: { token: 'session-placeholder', user, moderation } });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false, message: 'Database error' });
@@ -51,8 +58,17 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
     const user = (rows as any[])[0];
-    if (user.accountStatus === 'banned') {
-      return res.status(403).json({ success: false, message: "Account banned." });
+    const moderation = await fetchModerationState(user.id);
+    if (moderation.stage === 'TERMINATED') {
+      return res.status(403).json({
+        success: false,
+        message: "Account terminated.",
+        data: {
+          user,
+          moderation,
+          reasonText: getReasonText(moderation.lastAction?.reasonCode),
+        },
+      });
     }
     const lastSeen = user.lastSeen ? new Date(user.lastSeen) : new Date();
     const now = new Date();
@@ -68,7 +84,7 @@ router.post("/login", async (req, res) => {
 
     await pool.query('UPDATE users SET lastSeen=NOW(), status=? WHERE id=?', ['online', user.id]);
     user.lastSeen = new Date().toISOString();
-    return res.json({ success: true, data: { token: 'session-placeholder', user } });
+    return res.json({ success: true, data: { token: 'session-placeholder', user, moderation } });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false, message: 'Database error' });

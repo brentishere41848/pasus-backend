@@ -67,6 +67,21 @@ enum SubscriptionStatus {
   EXPIRED
 }
 
+enum ModerationStage {
+  NONE
+  WARNING_1
+  WARNING_2
+  WARNING_3
+  WARNING_4
+  TERMINATED
+}
+
+enum ReportStatus {
+  NEW
+  REVIEWED
+  DISMISSED
+}
+
 model ForumPost {
   id         String          @id @default(cuid())
   authorId   String
@@ -131,6 +146,11 @@ model User {
   auditLogs     AuditLog[]
   createdInvites ServerInvite[] @relation("InviteCreator")
   subscriptions Subscription[]
+  moderationActions ModerationAction[] @relation("ModeratedUser")
+  issuedActions     ModerationAction[] @relation("Moderator")
+  moderationStatus  ModerationStatus?
+  reportsFiled      UserReport[]       @relation("Reporter")
+  reportsReceived   UserReport[]       @relation("ReportedUser")
 }
 
 model RefreshToken {
@@ -389,4 +409,42 @@ model Subscription {
   currentPeriodEnd     DateTime
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
+}
+
+model ModerationAction {
+  id           String           @id @default(cuid())
+  user         User             @relation("ModeratedUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  moderator    User             @relation("Moderator", fields: [moderatorId], references: [id], onDelete: Cascade)
+  moderatorId  String
+  stage        ModerationStage
+  reasonCode   String
+  reasonText   String
+  notes        String?
+  createdAt    DateTime         @default(now())
+
+  @@index([userId])
+  @@index([moderatorId])
+}
+
+model ModerationStatus {
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String           @id
+  currentStage ModerationStage @default(NONE)
+  updatedAt   DateTime         @updatedAt
+}
+
+model UserReport {
+  id              String       @id @default(cuid())
+  reporter        User         @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reporterId      String
+  reportedUser    User         @relation("ReportedUser", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  reportedUserId  String
+  reasonCode      String
+  description     String       @db.Text
+  status          ReportStatus @default(NEW)
+  createdAt       DateTime     @default(now())
+
+  @@index([reportedUserId])
+  @@index([reporterId])
 }
