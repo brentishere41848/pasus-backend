@@ -5,7 +5,19 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM || 'Pasus <noreply@pasus.site>';
 const NOTIFY = process.env.RESEND_NOTIFY; // optional internal notification address
 
+function setCors(res: VercelResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  setCors(res);
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -21,9 +33,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await resend.emails.send({
       from: FROM,
       to: email,
-      subject: 'You’re on the Pasus waitlist',
-      text: 'Thanks for joining! We’ll email you when Pasus is ready.',
-      html: `<p>Thanks for joining the Pasus waitlist!</p><p>We’ll email you as soon as we open the doors.</p>`
+      subject: "You're on the Pasus waitlist",
+      text: "Thanks for joining! We'll email you when Pasus is ready.",
+      html: `<p>Thanks for joining the Pasus waitlist!</p><p>We'll email you as soon as we open the doors.</p>`
     });
 
     // optional internal notification
