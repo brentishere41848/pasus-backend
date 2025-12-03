@@ -5,6 +5,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const fromEnv = process.env.RESEND_FROM?.trim();
 const FROM = fromEnv && fromEnv.length > 0 ? fromEnv : 'Pasus <noreply@pasus.site>';
 const NOTIFY = process.env.RESEND_NOTIFY; // optional internal notification address
+const LOGO_URL = 'https://pasus.site/assets/logo.png'; // make sure this file exists on your host
 
 function setCors(res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -36,7 +37,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       to: email,
       subject: "You're on the Pasus waitlist",
       text: "Thanks for joining! We'll email you when Pasus is ready.",
-      html: `<p>Thanks for joining the Pasus waitlist!</p><p>We'll email you as soon as we open the doors.</p>`
+      html: `
+        <div style="font-family:Arial,sans-serif;background:#0b0b14;color:#ffffff;padding:24px;">
+          <div style="text-align:center;margin-bottom:16px;">
+            <img src="${LOGO_URL}" alt="Pasus" width="80" height="80" style="display:inline-block;border-radius:16px;" />
+          </div>
+          <h1 style="text-align:center;margin:0 0 12px;">You're on the Pasus waitlist</h1>
+          <p style="margin:0 0 12px;">Thanks for joining! We'll email you as soon as we open the doors.</p>
+        </div>
+      `
     });
 
     // optional internal notification
