@@ -5,7 +5,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const fromEnv = process.env.RESEND_FROM?.trim();
 const FROM = fromEnv && fromEnv.length > 0 ? fromEnv : 'Pasus <noreply@pasus.site>';
 const NOTIFY = process.env.RESEND_NOTIFY; // optional internal notification address
-const LOGO_URL = 'https://pasus.site/assets/logo.png'; // make sure this file exists on your host
+const LOGO_URL = 'https://pasus.site/assets/banner.png'; // make sure this file exists on your host
 
 function setCors(res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
