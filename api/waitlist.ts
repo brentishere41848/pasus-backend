@@ -5,7 +5,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const fromEnv = process.env.RESEND_FROM?.trim();
 const FROM = fromEnv && fromEnv.length > 0 ? fromEnv : 'Pasus <noreply@pasus.site>';
 const NOTIFY = process.env.RESEND_NOTIFY; // optional internal notification address
-const LOGO_URL = 'https://i.postimg.cc/KYq91FnG/Chat-GPT-Image-Dec-4-2025-08-06-35-AM-%281%29.png'; // direct image URL
+const BANNER_URL = 'https://i.postimg.cc/KYq91FnG/Chat-GPT-Image-Dec-4-2025-08-06-35-AM-%281%29.png'; // direct image URL
 
 function setCors(res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -40,7 +40,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       html: `
         <div style="font-family:Arial,sans-serif;background:#0b0b14;color:#ffffff;padding:24px;">
           <div style="text-align:center;margin-bottom:16px;">
-            <img src="${LOGO_URL}" alt="Pasus" width="80" height="80" style="display:inline-block;border-radius:16px;" />
+            <img src="${BANNER_URL}" alt="Pasus" style="display:block;margin:0 auto;border-radius:16px;width:100%;max-width:600px;height:auto;" />
           </div>
           <h1 style="text-align:center;margin:0 0 12px;">You're on the Pasus waitlist</h1>
           <p style="margin:0 0 12px;">Thanks for joining! We'll email you as soon as we open the doors.</p>
