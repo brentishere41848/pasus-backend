@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+  pasus-backend:
+    build: .
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+    environment:
+      - PORT=4000
+      # Set these in Hostinger UI or replace with real values
+      # - DATABASE_URL=mysql://user:pass@host:3306/db
+      # - ADMIN_MASTER=your-admin-master
+      # - OLLAMA_HOST=http://localhost:11434
+      # - OLLAMA_MODEL=llama3
