@@ -6,15 +6,20 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "npm run build && node dist/__tests__/analytics.test.js",
+    "analytics:daily": "tsx src/jobs/analytics.ts daily",
+    "analytics:yearly": "tsx src/jobs/analytics.ts yearly",
+    "analytics:wrapped": "tsx src/jobs/analytics.ts wrapped",
+    "backfill:messages": "tsx scripts/backfill_message_events.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.19.2",
     "mysql2": "^3.9.7",
-    "resend": "^3.3.0",
-    "uuid": "^11.0.3"
+    "resend": "^3.4.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

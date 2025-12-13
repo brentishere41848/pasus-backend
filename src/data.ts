@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+console.debug("[PasusDebug:backend/src/data] Loaded");
 export interface User {
   id: string;
   email: string;

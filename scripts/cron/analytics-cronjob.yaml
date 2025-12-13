@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pasus-analytics
+spec:
+  schedule: "0 2 * * *" # 02:00 UTC daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: analytics
+              # Replace with your published backend image tag
+              image: pasus-backend:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: ANALYTICS_ENABLED
+                  value: "true"
+                - name: ANALYTICS_JOBS_ENABLED
+                  value: "false" # we call the script directly in cron
+                - name: ANALYTICS_RESPECT_OPT_OUT
+                  value: "true"
+                # Database connection (example using individual vars)
+                - name: DB_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: pasus-db
+                      key: host
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: pasus-db
+                      key: user
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: pasus-db
+                      key: password
+                - name: DB_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: pasus-db
+                      key: name
+              command: ["/bin/bash", "/app/scripts/cron/analytics.sh"]

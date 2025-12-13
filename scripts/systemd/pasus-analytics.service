@@ -1,0 +1,17 @@
+[Unit]
+Description=Pasus analytics aggregation runner
+After=network.target mysql.service mariadb.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pasus/backend
+Environment=ANALYTICS_ENABLED=true
+Environment=ANALYTICS_JOBS_ENABLED=false
+Environment=ANALYTICS_RESPECT_OPT_OUT=true
+ExecStart=/usr/bin/env bash /opt/pasus/backend/scripts/cron/analytics.sh
+User=pasus
+Group=pasus
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

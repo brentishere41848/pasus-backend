@@ -2,6 +2,7 @@ import { Router } from "express";
 import dotenv from "dotenv";
 import { pool } from "../db.js";
 
+console.debug("[PasusDebug:backend/src/routes/ai] Loaded");
 dotenv.config();
 
 const router = Router();

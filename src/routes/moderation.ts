@@ -9,6 +9,8 @@ import {
 } from '../shared/moderation.js';
 import { requireAdmin, requireAuth, fetchModerationState } from '../middleware/auth.js';
 
+console.debug("[PasusDebug:backend/src/routes/moderation] Loaded");
+
 const router = Router();
 
 const stageOrder: Record<ModerationStage, number> = {
@@ -128,9 +130,9 @@ router.get('/users', requireAdmin, async (_req, res) => {
 
 router.get('/user/:userId', requireAuth, async (req, res) => {
   const { userId } = req.params;
-  const actorId = req.user!.id;
+  const actorId = (req as any).user!.id;
   const isSelf = actorId === userId;
-  const isAdmin = ['ADMIN', 'OWNER', 'SUPERADMIN'].includes((req.user!.role || '').toUpperCase());
+  const isAdmin = ['ADMIN', 'OWNER', 'SUPERADMIN'].includes(((req as any).user!.role || '').toUpperCase());
   if (!isSelf && !isAdmin) {
     return res.status(403).json({ success: false, message: 'Forbidden' });
   }
@@ -162,10 +164,10 @@ router.get('/user/:userId', requireAuth, async (req, res) => {
 
 router.get('/me', requireAuth, async (req, res) => {
   try {
-    const { stage, lastAction } = await fetchModerationState(req.user!.id);
+    const { stage, lastAction } = await fetchModerationState((req as any).user!.id);
     const [actions] = await pool.query(
       'SELECT id, stage, reasonCode, reasonText, notes, createdAt, moderatorId FROM moderation_actions WHERE userId=? ORDER BY createdAt DESC',
-      [req.user!.id]
+      [(req as any).user!.id]
     );
     res.json({ success: true, data: { currentStage: stage, lastAction, actions } });
   } catch (err) {
@@ -191,7 +193,7 @@ router.post('/user/:userId/warn', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already at max warnings or terminated' });
     }
 
-    await createAction(userId, req.user!.id, nextStage, reasonCode!, notes);
+    await createAction(userId, (req as any).user!.id, nextStage, reasonCode!, notes);
     await upsertStatus(userId, nextStage);
     await pool.query('UPDATE users SET accountStatus=? WHERE id=?', [nextStage === 'NONE' ? 'good' : 'warned', userId]);
     await sendModerationNotification(userId, nextStage, reasonCode!, notes);
@@ -216,7 +218,7 @@ router.post('/user/:userId/terminate', requireAdmin, async (req, res) => {
     const [userRows] = await pool.query('SELECT id FROM users WHERE id=?', [userId]);
     if (!(userRows as any[]).length) return res.status(404).json({ success: false, message: 'User not found' });
 
-    await createAction(userId, req.user!.id, 'TERMINATED', reasonCode!, notes);
+    await createAction(userId, (req as any).user!.id, 'TERMINATED', reasonCode!, notes);
     await upsertStatus(userId, 'TERMINATED');
     await pool.query('UPDATE users SET accountStatus=? WHERE id=?', ['banned', userId]);
     await sendModerationNotification(userId, 'TERMINATED', reasonCode!, notes);
@@ -235,7 +237,7 @@ router.post('/user/:userId/reset', requireAdmin, async (req, res) => {
   try {
     await upsertStatus(userId, 'NONE');
     await pool.query('UPDATE users SET accountStatus=? WHERE id=?', ['good', userId]);
-    await createAction(userId, req.user!.id, 'NONE', 'OTHER', 'Status reset by admin');
+    await createAction(userId, (req as any).user!.id, 'NONE', 'OTHER', 'Status reset by admin');
     const status = await fetchModerationState(userId);
     const actions = await getActionsForUser(userId);
     res.json({ success: true, data: { currentStage: status.stage, lastAction: status.lastAction, actions } });
@@ -261,7 +263,7 @@ reportsRouter.post('/', requireAuth, async (req, res) => {
     const id = uuid();
     await pool.query(
       'INSERT INTO user_reports (id,reporterId,reportedUserId,reasonCode,description,status,createdAt) VALUES (?,?,?,?,?,"NEW",NOW())',
-      [id, req.user!.id, reportedUserId, reasonCode, description]
+      [id, (req as any).user!.id, reportedUserId, reasonCode, description]
     );
     res.json({ success: true, data: { id } });
   } catch (err) {

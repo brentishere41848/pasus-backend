@@ -1,3 +1,4 @@
+console.debug("[PasusDebug:backend/src/shared/moderation] Loaded");
 export type ModerationStage =
   | 'NONE'
   | 'WARNING_1'

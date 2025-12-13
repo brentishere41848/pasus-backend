@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
   accountStatus VARCHAR(20) NOT NULL DEFAULT 'good',
   lastSeen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  emailVerified BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -127,6 +128,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE TABLE IF NOT EXISTS servers (
   id VARCHAR(191) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
+  type ENUM('GROUP','SERVER','COMMUNITY') NOT NULL DEFAULT 'SERVER',
   iconUrl VARCHAR(512),
   ownerId VARCHAR(191) NOT NULL,
   description TEXT,
@@ -222,6 +224,7 @@ CREATE TABLE IF NOT EXISTS server_templates (
 
 -- Onboarding settings on servers
 ALTER TABLE servers
+  ADD COLUMN IF NOT EXISTS type ENUM('GROUP','SERVER','COMMUNITY') NOT NULL DEFAULT 'SERVER',
   ADD COLUMN IF NOT EXISTS welcomeChannelId VARCHAR(191),
   ADD COLUMN IF NOT EXISTS welcomeMessageTemplate TEXT;
 
@@ -311,4 +314,51 @@ CREATE TABLE IF NOT EXISTS user_reports (
   INDEX idx_report_reporter (reporterId),
   CONSTRAINT fk_report_reporter FOREIGN KEY (reporterId) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_report_user FOREIGN KEY (reportedUserId) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Unified moderation reports (users, messages, groups)
+CREATE TABLE IF NOT EXISTS reports (
+  id VARCHAR(191) PRIMARY KEY,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reporter_id VARCHAR(191) NOT NULL,
+  target_type ENUM('USER','MESSAGE','GROUP') NOT NULL,
+  target_id VARCHAR(191) NOT NULL,
+  group_id VARCHAR(191),
+  channel_id VARCHAR(191),
+  reason_code VARCHAR(100) NOT NULL,
+  reason_text TEXT,
+  status ENUM('OPEN','IN_REVIEW','RESOLVED','DISMISSED') NOT NULL DEFAULT 'OPEN',
+  handled_by VARCHAR(191),
+  handled_at DATETIME,
+  notes TEXT,
+  INDEX idx_reports_status (status),
+  INDEX idx_reports_target (target_type, target_id),
+  INDEX idx_reports_group (group_id),
+  INDEX idx_reports_reporter (reporter_id),
+  CONSTRAINT fk_reports_reporter FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_reports_group FOREIGN KEY (group_id) REFERENCES servers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_reports_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS friends (
+    id VARCHAR(36) PRIMARY KEY,
+    userA VARCHAR(36) NOT NULL,
+    userB VARCHAR(36) NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userA) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (userB) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_friendship (userA, userB)
+);
+
+CREATE TABLE IF NOT EXISTS voice_participants (
+    channelId VARCHAR(36) NOT NULL,
+    userId VARCHAR(36) NOT NULL,
+    peerId VARCHAR(100) NOT NULL,
+    muted BOOLEAN DEFAULT FALSE,
+    deafened BOOLEAN DEFAULT FALSE,
+    joinedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    lastKeepAlive DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (channelId, userId),
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
 );

@@ -1,0 +1,13 @@
+-- Adds email verification support
+ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerified BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id VARCHAR(191) PRIMARY KEY,
+  userId VARCHAR(191) NOT NULL,
+  token VARCHAR(191) NOT NULL,
+  expiresAt DATETIME NOT NULL,
+  used TINYINT(1) NOT NULL DEFAULT 0,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_token (token),
+  CONSTRAINT fk_ev_user FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+);
