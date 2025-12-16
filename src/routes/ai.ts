@@ -25,7 +25,8 @@ async function runOllama(promptMessages: any[]) {
   if (!resolvedModel) return buildFallback(promptMessages);
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); // allow longer on VPS so model can respond
+    // Allow long startup (model load) on first request
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60s
 
     const resp = await fetch(`${OLLAMA_HOST}/api/chat`, {
       method: "POST",
@@ -35,7 +36,7 @@ async function runOllama(promptMessages: any[]) {
         messages: promptMessages,
         stream: false,
         options: {
-          num_predict: 128, // cap response length so calls return fast
+          num_predict: 64, // shorter responses to return faster
         },
       }),
       signal: controller.signal,
