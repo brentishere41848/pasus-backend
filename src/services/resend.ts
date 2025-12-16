@@ -10,7 +10,7 @@ export const resendClient = RESEND_API_KEY
 
 export const sendVerificationEmail = async (to: string, token: string) => {
   if (!resendClient) throw new Error("RESEND_API_KEY not configured");
-  const base = process.env.APP_BASE_URL || "http://localhost:5173";
+  const base = process.env.APP_BASE_URL || "https://pasus.site";
   const verifyUrl = `${base.replace(/\/$/, "")}/verify-email?token=${encodeURIComponent(token)}`;
   console.log("[Pasus] Sending verification email to", to, "token", token);
   const brand = "Pasus";

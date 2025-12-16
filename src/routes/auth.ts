@@ -272,7 +272,7 @@ router.post("/resend-otp", async (req, res) => {
   }
 });
 
-const APP_BASE_URL = (process.env.APP_BASE_URL || "http://localhost:5173").replace(/\/$/, "");
+const APP_BASE_URL = (process.env.APP_BASE_URL || "https://pasus.site").replace(/\/$/, "");
 const API_BASE_URL = (process.env.API_BASE_URL || process.env.APP_API_URL || `http://localhost:${process.env.PORT || 4000}`).replace(/\/$/, "");
 
 const ensureUniqueUsername = async (preferred: string) => {

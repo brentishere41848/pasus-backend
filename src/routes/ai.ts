@@ -51,28 +51,7 @@ router.post("/chat", async (req, res) => {
   const resolvedModel = (model || OLLAMA_MODEL || "llama3").trim();
 
   try {
-    if (!resolvedModel) {
-      return res.json(buildFallback(messages));
-    }
-
-    const ollamaRes = await fetch(`${OLLAMA_HOST}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: resolvedModel,
-        messages,
-        stream: false
-      })
-    });
-
-    if (!ollamaRes.ok) {
-      const text = await ollamaRes.text();
-      console.error("Ollama returned non-OK", text || `status ${ollamaRes.status}`);
-      return res.json(buildFallback(messages));
-    }
-
-    const data = await ollamaRes.json();
-    // Persist AI session (best-effort)
+    const data = await runOllama(messages);
     if (userId && messages.length && data?.message?.content) {
       const prompt = messages[messages.length - 1]?.content || "";
       try {
@@ -84,10 +63,7 @@ router.post("/chat", async (req, res) => {
         console.error("Failed to persist ai_session", err);
       }
     }
-    // Ollama returns { message: { content: "..."} }
-    if (!data?.message?.content) {
-      return res.json(buildFallback(messages));
-    }
+    if (!data?.message?.content) return res.json(buildFallback(messages));
     return res.json(data);
   } catch (err) {
     console.error("Ollama call failed", err);
