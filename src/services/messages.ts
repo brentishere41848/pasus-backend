@@ -21,9 +21,12 @@ const asDateTime = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
  */
 export async function createChannelMessage(
   input: ChannelMessageInput,
-  db: Pool = pool
+  db: Pool | PoolConnection = pool
 ) {
-  const conn = await db.getConnection();
+  // Support callers that pass either a Pool (typical) or an already-checked-out connection.
+  const isPool = typeof (db as Pool).getConnection === "function";
+  const conn = isPool ? await (db as Pool).getConnection() : (db as PoolConnection);
+  const shouldRelease = isPool; // only release when we grabbed it
   const createdAt = input.createdAt || new Date();
   const messageId = uuid();
   try {
@@ -51,7 +54,7 @@ export async function createChannelMessage(
     await conn.rollback();
     throw err;
   } finally {
-    conn.release();
+    if (shouldRelease) conn.release();
   }
 }
 

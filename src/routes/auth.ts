@@ -5,20 +5,71 @@ import crypto from "crypto";
 import { pool } from "../db.js";
 import { fetchModerationState } from "../middleware/auth.js";
 import { getReasonText } from "../shared/moderation.js";
-import { resendClient, sendVerificationEmail } from "../services/resend.js";
+import { resendClient, sendVerificationCodeEmail, sendVerificationEmail } from "../services/resend.js";
 import {
   createLoginOtp,
+  createVerifyOtp,
   resendLoginOtp,
   sendLoginCodeEmail,
   verifyLoginOtp,
   OTP_VERIFY_MAX_ATTEMPTS,
+  verifyEmailOtp,
 } from "../services/otp.js";
+import { authenticator } from "otplib";
 
 console.debug("[PasusDebug:backend/src/routes/auth] Loaded");
 dotenv.config();
 const ALLOW_MOCKS = process.env.ALLOW_MOCKS === 'true';
+const SKIP_EMAIL_VERIFICATION = process.env.SKIP_EMAIL_VERIFICATION === 'true';
+const SKIP_LOGIN_OTP = process.env.SKIP_LOGIN_OTP === 'true';
 
 const router = Router();
+const PROFILE_TOKEN_MINUTES = 30;
+const TFA_TOKEN_MINUTES = 10;
+
+const hashRecovery = (code: string) => crypto.createHash("sha256").update(code).digest("hex");
+const generateRecoveryCodes = (count = 10) => {
+  const codes: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const buf = crypto.randomBytes(6).toString("hex");
+    codes.push(buf);
+  }
+  return codes;
+};
+
+const ensureUniqueUsername = async (preferred: string) => {
+  let candidate = preferred || `user${Date.now()}`;
+  let n = 0;
+  while (n < 25) {
+    const [rows] = await pool.query("SELECT id FROM users WHERE username=? LIMIT 1", [candidate]);
+    if (!(rows as any[]).length) return candidate;
+    n += 1;
+    candidate = `${preferred}_${n}`;
+  }
+  return `${preferred}_${crypto.randomBytes(3).toString("hex")}`;
+};
+
+const issueProfileToken = async (userId: string) => {
+  const token = uuid();
+  const expiresAt = new Date(Date.now() + PROFILE_TOKEN_MINUTES * 60 * 1000);
+  await pool.query(
+    `INSERT INTO login_otps (id, token, userId, codeHash, purpose, createdAt, expiresAt, usedAt, attemptCount, lastSentAt, resendCount, ipAddress)
+     VALUES (?, ?, ?, ?, 'PROFILE', NOW(), ?, NULL, 0, NOW(), 0, NULL)`,
+    [uuid(), token, userId, "profile", expiresAt]
+  );
+  return token;
+};
+
+const issueTfaToken = async (userId: string) => {
+  const token = uuid();
+  const expiresAt = new Date(Date.now() + TFA_TOKEN_MINUTES * 60 * 1000);
+  await pool.query(
+    `INSERT INTO login_otps (id, token, userId, codeHash, purpose, createdAt, expiresAt, usedAt, attemptCount, lastSentAt, resendCount, ipAddress)
+     VALUES (?, ?, ?, ?, 'TFA', NOW(), ?, NULL, 0, NOW(), 0, NULL)`,
+    [uuid(), token, userId, "tfa", expiresAt]
+  );
+  return token;
+};
 
 router.post("/register", async (req, res) => {
   const { email, password, username } = req.body as {
@@ -47,30 +98,23 @@ router.post("/register", async (req, res) => {
       'INSERT INTO moderation_statuses (userId,currentStage,updatedAt) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE currentStage=currentStage',
       [id, 'NONE']
     );
-    const [userRows] = await pool.query('SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt FROM users WHERE id=?', [id]);
+    const [userRows] = await pool.query('SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt,emailVerified,totpEnabled FROM users WHERE id=?', [id]);
     const user = (userRows as any[])[0];
+    if (user) user.twoFactorEnabled = Boolean(user.totpEnabled);
     const moderation = await fetchModerationState(id);
 
-    // queue verification email (15 min token) without blocking response
+    // queue verification code (15 min) without blocking response
     (async () => {
       try {
-        const token = uuid();
-        const expires = new Date(Date.now() + 15 * 60 * 1000);
-        await pool.query(
-          "INSERT INTO email_verifications (id, userId, token, expiresAt, used) VALUES (?, ?, ?, ?, 0)",
-          [uuid(), id, token, expires]
-        );
-        if (resendClient) {
-          await sendVerificationEmail(email, token);
-        } else {
-          console.warn("[Pasus] RESEND_API_KEY not set; verification email not sent");
-        }
+        const { otpToken: _, code } = await createVerifyOtp(id, email, req.ip);
+        if (resendClient) await sendVerificationCodeEmail(email, code);
+        else console.warn("[Pasus] RESEND_API_KEY not set; verification code not sent");
       } catch (err) {
-        console.warn("[Pasus] Failed to queue verification email", err);
+        console.warn("[Pasus] Failed to queue verification code email", err);
       }
     })();
 
-    return res.json({ success: true, data: { token: 'session-placeholder', user, moderation } });
+    return res.json({ success: true, data: { token: 'session-placeholder', user, moderation, requiresEmailVerification: true } });
   } catch (err) {
     console.error(err);
     if (ALLOW_MOCKS) {
@@ -103,17 +147,37 @@ router.post("/login", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      'SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt,emailVerified,passwordHash FROM users WHERE email=?',
+      'SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt,emailVerified,passwordHash,totpEnabled FROM users WHERE email=?',
       [email]
     );
     const user = (rows as any[])[0];
+    if (user) {
+      user.twoFactorEnabled = Boolean(user.totpEnabled);
+    }
     let otpToken = uuid(); // opaque token even when credentials fail (avoid enumeration)
 
     if (user && user.passwordHash === password) {
+      if (!user.emailVerified && !SKIP_EMAIL_VERIFICATION) {
+        return res.status(401).json({ success: false, message: "Email not verified. Please verify your email first." });
+      }
       const moderation = await fetchModerationState(user.id);
       if (moderation.stage === 'TERMINATED') {
         // Keep response generic to avoid leaking moderation status during login enumeration
         return res.json({ success: true, data: { requiresOtp: true, otpToken } });
+      }
+
+      if (user.twoFactorEnabled && !SKIP_LOGIN_OTP) {
+        const tfaToken = await issueTfaToken(user.id);
+        return res.json({
+          success: true,
+          data: { requires2fa: true, tfaToken, message: "Enter the 6-digit code from your authenticator app." },
+        });
+      }
+      // In dev, optionally skip OTP flow entirely
+      if (SKIP_LOGIN_OTP) {
+        await pool.query("UPDATE users SET lastSeen=NOW(), status='online' WHERE id=?", [user.id]);
+        const token = user.id;
+        return res.json({ success: true, data: { token, user, moderation } });
       }
 
       // Create OTP (and invalidate previous ones) but don't finalize session yet
@@ -191,10 +255,11 @@ router.post("/verify-otp", async (req, res) => {
   try {
     const result = await verifyLoginOtp(otpToken, code);
     const [userRows] = await pool.query(
-      "SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt,emailVerified FROM users WHERE id=? LIMIT 1",
+      "SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt,emailVerified,totpEnabled FROM users WHERE id=? LIMIT 1",
       [result.userId]
     );
     const user = (userRows as any[])[0];
+    if (user) user.twoFactorEnabled = Boolean(user.totpEnabled);
     if (!user) return res.status(404).json({ success: false, message: "Account not found" });
 
     const moderation = await fetchModerationState(user.id);
@@ -241,6 +306,137 @@ router.post("/verify-otp", async (req, res) => {
   }
 });
 
+router.post("/verify-email/code", async (req, res) => {
+  const { email, code } = req.body as { email?: string; code?: string };
+  if (!email || !code) return res.status(400).json({ success: false, message: "Missing fields" });
+  try {
+    const [rows] = await pool.query("SELECT id FROM users WHERE email=? LIMIT 1", [email]);
+    const user = (rows as any[])[0];
+    if (!user) return res.status(404).json({ success: false, message: "Account not found" });
+
+    await verifyEmailOtp(user.id, code);
+    const [userRows] = await pool.query(
+      "SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt,emailVerified,totpEnabled FROM users WHERE id=? LIMIT 1",
+      [user.id]
+    );
+    const refreshed = (userRows as any[])[0];
+    if (refreshed) refreshed.twoFactorEnabled = Boolean(refreshed.totpEnabled);
+    const moderation = await fetchModerationState(user.id);
+    const token = refreshed.id;
+    return res.json({ success: true, data: { token, user: refreshed, moderation } });
+  } catch (err: any) {
+    const codeMsg = err?.message || "";
+    if (codeMsg === "OTP_EXPIRED") return res.status(400).json({ success: false, message: "Code expired. Request a new one." });
+    if (codeMsg === "OTP_USED") return res.status(400).json({ success: false, message: "Code already used. Request a new one." });
+    if (codeMsg === "OTP_LOCKED") return res.status(429).json({ success: false, message: `Too many attempts. Request a new code.` });
+    if (codeMsg === "OTP_MISMATCH" || codeMsg === "OTP_INVALID") {
+      return res.status(400).json({ success: false, message: "Incorrect code. Check and try again." });
+    }
+    console.error("[auth] verify-email/code failed", err);
+    return res.status(500).json({ success: false, message: "Verification failed" });
+  }
+});
+
+router.post("/verify-email/request", async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email) return res.status(400).json({ success: false, message: "Missing email" });
+  try {
+    const [rows] = await pool.query("SELECT id, emailVerified FROM users WHERE email=? LIMIT 1", [email]);
+    const user = (rows as any[])[0];
+    if (!user) return res.status(404).json({ success: false, message: "Account not found" });
+    if (user.emailVerified) return res.json({ success: true, data: { alreadyVerified: true } });
+    const { code } = await createVerifyOtp(user.id, email, req.ip);
+    if (resendClient) await sendVerificationCodeEmail(email, code);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[auth] verify-email/request failed", err);
+    return res.status(500).json({ success: false, message: "Unable to send code" });
+  }
+});
+
+router.post("/2fa/setup", async (req, res) => {
+  const { userId } = req.body as { userId?: string };
+  if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
+  try {
+    const secret = authenticator.generateSecret();
+    await pool.query("UPDATE users SET totpSecret=?, totpEnabled=0 WHERE id=?", [secret, userId]);
+    const otpauth = authenticator.keyuri(userId, "Pasus", secret);
+    return res.json({ success: true, data: { secret, otpauth } });
+  } catch (err) {
+    console.error("[auth] 2fa setup failed", err);
+    return res.status(500).json({ success: false, message: "Unable to start 2FA setup" });
+  }
+});
+
+router.post("/2fa/verify-setup", async (req, res) => {
+  const { userId, code } = req.body as { userId?: string; code?: string };
+  if (!userId || !code) return res.status(400).json({ success: false, message: "Missing fields" });
+  try {
+    const [rows] = await pool.query("SELECT totpSecret FROM users WHERE id=? LIMIT 1", [userId]);
+    const user = (rows as any[])[0];
+    if (!user?.totpSecret) return res.status(400).json({ success: false, message: "2FA not initialized" });
+    const ok = authenticator.check(code, user.totpSecret);
+    if (!ok) return res.status(400).json({ success: false, message: "Invalid code" });
+    const recovery = generateRecoveryCodes();
+    const hashed = recovery.map(hashRecovery);
+    await pool.query("UPDATE users SET totpEnabled=1, totpRecoveryCodes=? WHERE id=?", [JSON.stringify(hashed), userId]);
+    return res.json({ success: true, data: { recoveryCodes: recovery } });
+  } catch (err) {
+    console.error("[auth] 2fa verify failed", err);
+    return res.status(500).json({ success: false, message: "Unable to enable 2FA" });
+  }
+});
+
+router.post("/2fa/disable", async (req, res) => {
+  const { userId, code } = req.body as { userId?: string; code?: string };
+  if (!userId || !code) return res.status(400).json({ success: false, message: "Missing fields" });
+  try {
+    const [rows] = await pool.query("SELECT totpSecret, totpRecoveryCodes FROM users WHERE id=? LIMIT 1", [userId]);
+    const user = (rows as any[])[0];
+    if (!user?.totpSecret) return res.status(400).json({ success: false, message: "2FA not enabled" });
+    const recoveryHashes = user.totpRecoveryCodes ? JSON.parse(user.totpRecoveryCodes || "[]") : [];
+    const codeClean = code.trim();
+    const ok = authenticator.check(codeClean, user.totpSecret) || recoveryHashes.includes(hashRecovery(codeClean));
+    if (!ok) return res.status(400).json({ success: false, message: "Invalid code" });
+    await pool.query("UPDATE users SET totpEnabled=0, totpSecret=NULL, totpRecoveryCodes=NULL WHERE id=?", [userId]);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[auth] 2fa disable failed", err);
+    return res.status(500).json({ success: false, message: "Unable to disable 2FA" });
+  }
+});
+
+router.post("/2fa/login", async (req, res) => {
+  const { tfaToken, code } = req.body as { tfaToken?: string; code?: string };
+  if (!tfaToken || !code) return res.status(400).json({ success: false, message: "Missing fields" });
+  try {
+    const [rows] = await pool.query("SELECT * FROM login_otps WHERE token=? AND purpose='TFA' LIMIT 1", [tfaToken]);
+    const row = (rows as any[])[0];
+    if (!row) return res.status(400).json({ success: false, message: "Invalid token" });
+    if (row.usedAt) return res.status(400).json({ success: false, message: "Token already used" });
+    if (new Date(row.expiresAt) < new Date()) return res.status(400).json({ success: false, message: "Token expired" });
+
+    const [userRows] = await pool.query(
+      "SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt,emailVerified,totpEnabled,totpSecret FROM users WHERE id=? LIMIT 1",
+      [row.userId]
+    );
+    const user = (userRows as any[])[0];
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    const isValid = user.totpSecret ? authenticator.check(code.trim(), user.totpSecret) : false;
+    if (!isValid) return res.status(400).json({ success: false, message: "Invalid code" });
+
+    await pool.query("UPDATE login_otps SET usedAt=NOW() WHERE id=?", [row.id]);
+    await pool.query('UPDATE users SET lastSeen=NOW(), status=? WHERE id=?', ['online', user.id]);
+    user.twoFactorEnabled = Boolean(user.totpEnabled);
+    const moderation = await fetchModerationState(user.id);
+    const token = user.id;
+    return res.json({ success: true, data: { token, user, moderation } });
+  } catch (err) {
+    console.error("[auth] 2fa login failed", err);
+    return res.status(500).json({ success: false, message: "2FA verification failed" });
+  }
+});
+
 router.post("/resend-otp", async (req, res) => {
   const { otpToken } = req.body as { otpToken?: string };
   if (!otpToken) return res.status(400).json({ success: false, message: "Missing token" });
@@ -272,21 +468,50 @@ router.post("/resend-otp", async (req, res) => {
   }
 });
 
+router.post("/complete-profile", async (req, res) => {
+  const { profileToken, username, password } = req.body as { profileToken?: string; username?: string; password?: string };
+  if (!profileToken || !username || !password) return res.status(400).json({ success: false, message: "Missing fields" });
+  try {
+    const [rows] = await pool.query(
+      "SELECT * FROM login_otps WHERE token=? AND purpose='PROFILE' LIMIT 1",
+      [profileToken]
+    );
+    const row = (rows as any[])[0];
+    if (!row) return res.status(400).json({ success: false, message: "Invalid profile token" });
+    if (row.usedAt) return res.status(400).json({ success: false, message: "Profile token already used" });
+    if (new Date(row.expiresAt) < new Date()) return res.status(400).json({ success: false, message: "Profile token expired" });
+
+    const uniqueUsername = await ensureUniqueUsername(username);
+    const [existingUsername] = await pool.query("SELECT id FROM users WHERE username=? AND id<>?", [uniqueUsername, row.userId]);
+    if ((existingUsername as any[]).length) {
+      return res.status(409).json({ success: false, message: "Username taken" });
+    }
+
+    await pool.query("UPDATE users SET username=?, displayName=?, passwordHash=?, emailVerified=1, updatedAt=NOW() WHERE id=?", [
+      uniqueUsername,
+      uniqueUsername,
+      password,
+      row.userId,
+    ]);
+    await pool.query("UPDATE login_otps SET usedAt=NOW() WHERE id=?", [row.id]);
+
+    const [userRows] = await pool.query(
+      "SELECT id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt,emailVerified,totpEnabled FROM users WHERE id=? LIMIT 1",
+      [row.userId]
+    );
+    const user = (userRows as any[])[0];
+    if (user) user.twoFactorEnabled = Boolean(user.totpEnabled);
+    const moderation = await fetchModerationState(user.id);
+    const token = user.id;
+    return res.json({ success: true, data: { token, user, moderation } });
+  } catch (err) {
+    console.error("[auth] complete-profile failed", err);
+    return res.status(500).json({ success: false, message: "Unable to complete profile" });
+  }
+});
+
 const APP_BASE_URL = (process.env.APP_BASE_URL || "https://pasus.site").replace(/\/$/, "");
 const API_BASE_URL = (process.env.API_BASE_URL || process.env.APP_API_URL || `http://localhost:${process.env.PORT || 4000}`).replace(/\/$/, "");
-
-const ensureUniqueUsername = async (preferred: string) => {
-  let candidate = preferred || `user${Date.now()}`;
-  let n = 0;
-  // safety cap
-  while (n < 25) {
-    const [rows] = await pool.query("SELECT id FROM users WHERE username=? LIMIT 1", [candidate]);
-    if (!(rows as any[]).length) return candidate;
-    n += 1;
-    candidate = `${preferred}_${n}`;
-  }
-  return `${preferred}_${crypto.randomBytes(3).toString("hex")}`;
-};
 
 const upsertOauthUser = async (opts: { email: string; name?: string; avatar?: string; provider: "google" | "github" }) => {
   const { email, name, avatar, provider } = opts;
@@ -332,10 +557,11 @@ const upsertOauthUser = async (opts: { email: string; name?: string; avatar?: st
   return { user, moderation };
 };
 
-const redirectWithUser = (res: any, user: any, moderation: any) => {
+const redirectWithUser = async (res: any, user: any, moderation: any) => {
   const token = user.id;
   const payload = Buffer.from(JSON.stringify({ token, user, moderation })).toString("base64url");
-  const target = `${APP_BASE_URL}/?oauthToken=${encodeURIComponent(token)}&oauthUser=${encodeURIComponent(payload)}`;
+  const profileToken = await issueProfileToken(user.id);
+  const target = `${APP_BASE_URL}/?oauthToken=${encodeURIComponent(token)}&oauthUser=${encodeURIComponent(payload)}&profileToken=${encodeURIComponent(profileToken)}`;
   return res.redirect(target);
 };
 

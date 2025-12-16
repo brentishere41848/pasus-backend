@@ -67,7 +67,7 @@ export async function aggregateUserContactYearly(
      WHERE is_dm = TRUE
        AND created_at >= ? AND created_at < ?
      GROUP BY user_id, YEAR(CONVERT_TZ(created_at, '+00:00', '+00:00')), dm_partner_id
-     ON DUPLICATE KEY UPDATE message_count = message_count + VALUES(message_count)`,
+     ON DUPLICATE KEY UPDATE message_count = VALUES(message_count)`,
     [DATE_FMT(start), DATE_FMT(end)]
   );
 }
@@ -88,7 +88,7 @@ export async function aggregateUserServerYearly(
      WHERE is_dm = FALSE
        AND created_at >= ? AND created_at < ?
      GROUP BY user_id, YEAR(CONVERT_TZ(created_at, '+00:00', '+00:00')), server_id
-     ON DUPLICATE KEY UPDATE message_count = message_count + VALUES(message_count)`,
+     ON DUPLICATE KEY UPDATE message_count = VALUES(message_count)`,
     [DATE_FMT(start), DATE_FMT(end)]
   );
 }

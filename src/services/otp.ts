@@ -5,7 +5,8 @@ import { resendClient } from "./resend.js";
 
 console.debug("[PasusDebug:backend/services/otp] Loaded");
 
-export type OtpPurpose = "LOGIN";
+export type OtpPurpose = "LOGIN" | "TFA";
+export type VerificationPurpose = "LOGIN" | "VERIFY" | "PROFILE" | "TFA";
 
 export interface LoginOtpRecord {
   id: string;
@@ -81,14 +82,14 @@ export const sendLoginCodeEmail = async (toEmail: string, code: string) => {
   });
 };
 
-export const createLoginOtp = async (userId: string, email: string, ip?: string) => {
+export const createLoginOtp = async (userId: string, email: string, ip?: string, purpose: VerificationPurpose = "LOGIN") => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
     const [lastRows] = await conn.query(
-      "SELECT createdAt, lastSentAt FROM login_otps WHERE (userId=? OR ipAddress=?) AND purpose='LOGIN' ORDER BY createdAt DESC LIMIT 1",
-      [userId, ip || null]
+      "SELECT createdAt, lastSentAt FROM login_otps WHERE (userId=? OR ipAddress=?) AND purpose=? ORDER BY createdAt DESC LIMIT 1",
+      [userId, ip || null, purpose]
     );
     const last = (lastRows as any[])[0];
     if (last && last.lastSentAt) {
@@ -99,8 +100,8 @@ export const createLoginOtp = async (userId: string, email: string, ip?: string)
     }
 
     const [recentRows] = await conn.query(
-      "SELECT COUNT(*) as count FROM login_otps WHERE (userId=? OR ipAddress=?) AND purpose='LOGIN' AND createdAt > DATE_SUB(NOW(), INTERVAL 1 HOUR)",
-      [userId, ip || null]
+      "SELECT COUNT(*) as count FROM login_otps WHERE (userId=? OR ipAddress=?) AND purpose=? AND createdAt > DATE_SUB(NOW(), INTERVAL 1 HOUR)",
+      [userId, ip || null, purpose]
     );
     const recentCount = Number((recentRows as any[])[0]?.count || 0);
     if (recentCount >= OTP_RESEND_MAX_PER_HOUR) {
@@ -109,8 +110,8 @@ export const createLoginOtp = async (userId: string, email: string, ip?: string)
 
     // Invalidate any previous unused login OTPs
     await conn.query(
-      "UPDATE login_otps SET usedAt=NOW() WHERE userId=? AND purpose='LOGIN' AND usedAt IS NULL",
-      [userId]
+      "UPDATE login_otps SET usedAt=NOW() WHERE userId=? AND purpose=? AND usedAt IS NULL",
+      [userId, purpose]
     );
 
     const code = generateOtpCode();
@@ -119,8 +120,8 @@ export const createLoginOtp = async (userId: string, email: string, ip?: string)
 
     await conn.query(
       `INSERT INTO login_otps (id, token, userId, codeHash, purpose, createdAt, expiresAt, usedAt, attemptCount, lastSentAt, resendCount, ipAddress)
-       VALUES (?, ?, ?, ?, 'LOGIN', NOW(), ?, NULL, 0, NOW(), 0, ?)`,
-      [uuid(), token, userId, hashOtp(code), expiresAt, ip || null]
+       VALUES (?, ?, ?, ?, ?, NOW(), ?, NULL, 0, NOW(), 0, ?)`,
+      [uuid(), token, userId, hashOtp(code), purpose, expiresAt, ip || null]
     );
 
     await conn.commit();
@@ -212,6 +213,42 @@ export const resendLoginOtp = async (otpToken: string, ip?: string) => {
 
     await conn.commit();
     return { otpToken: token, code, userId: record.userId };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+export const createVerifyOtp = async (userId: string, email: string, ip?: string) => {
+  return createLoginOtp(userId, email, ip, "VERIFY");
+};
+
+export const verifyEmailOtp = async (userId: string, code: string) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query(
+      "SELECT * FROM login_otps WHERE userId=? AND purpose='VERIFY' AND usedAt IS NULL ORDER BY createdAt DESC LIMIT 1 FOR UPDATE",
+      [userId]
+    );
+    const row = (rows as any[])[0];
+    if (!row) throw new Error("OTP_INVALID");
+    const record = recordToModel(row);
+    if (record.expiresAt.getTime() <= Date.now()) throw new Error("OTP_EXPIRED");
+    if (!canRetryVerify(record.attemptCount)) throw new Error("OTP_LOCKED");
+
+    if (hashOtp(code) !== record.codeHash) {
+      await conn.query("UPDATE login_otps SET attemptCount=attemptCount+1 WHERE id=?", [record.id]);
+      await conn.commit();
+      throw new Error("OTP_MISMATCH");
+    }
+
+    await conn.query("UPDATE login_otps SET usedAt=NOW() WHERE id=?", [record.id]);
+    await conn.query("UPDATE users SET emailVerified=1 WHERE id=?", [record.userId]);
+    await conn.commit();
+    return { userId: record.userId };
   } catch (err) {
     await conn.rollback();
     throw err;
