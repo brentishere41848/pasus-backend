@@ -26,7 +26,7 @@ const ensureDemoUserExists = async (userId: string) => {
     }
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     await pool.query(
-      `INSERT INTO users (id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt)
+      `INSERT IGNORE INTO users (id,email,username,displayName,avatarUrl,status,role,isPremium,accountStatus,lastSeen,createdAt,updatedAt)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         userId,

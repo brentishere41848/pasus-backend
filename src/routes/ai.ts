@@ -25,7 +25,7 @@ async function runOllama(promptMessages: any[]) {
   if (!resolvedModel) return buildFallback(promptMessages);
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000); // fail fast instead of hanging
+    const timeout = setTimeout(() => controller.abort(), 15000); // allow longer on VPS so model can respond
 
     const resp = await fetch(`${OLLAMA_HOST}/api/chat`, {
       method: "POST",
@@ -54,7 +54,6 @@ async function runOllama(promptMessages: any[]) {
     } else {
       console.error("Ollama call failed", err);
     }
-    console.error("Ollama call failed", err);
     return buildFallback(promptMessages);
   }
 }
@@ -72,8 +71,9 @@ router.post("/chat", async (req, res) => {
           'INSERT INTO ai_sessions (id,userId,prompt,response,mode,createdAt,completedAt) VALUES (UUID(),?,?,?,?,NOW(),NOW())',
           [userId, prompt, data.message.content, 'app']
         );
-      } catch (err) {
-        console.error("Failed to persist ai_session", err);
+      } catch (err: any) {
+        // Swallow FK or other persistence errors so AI responses still return
+        console.warn("Failed to persist ai_session", err?.code || err);
       }
     }
     if (!data?.message?.content) return res.json(buildFallback(messages));
