@@ -24,6 +24,9 @@ async function runOllama(promptMessages: any[]) {
   const resolvedModel = (OLLAMA_MODEL || "llama3").trim();
   if (!resolvedModel) return buildFallback(promptMessages);
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000); // fail fast instead of hanging
+
     const resp = await fetch(`${OLLAMA_HOST}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -32,7 +35,9 @@ async function runOllama(promptMessages: any[]) {
         messages: promptMessages,
         stream: false,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     if (!resp.ok) {
       const txt = await resp.text();
       console.error("Ollama non-OK", txt);
@@ -41,6 +46,11 @@ async function runOllama(promptMessages: any[]) {
     const data = await resp.json();
     return data?.message?.content ? data : buildFallback(promptMessages);
   } catch (err) {
+    if ((err as any)?.name === "AbortError") {
+      console.error("Ollama call timed out");
+    } else {
+      console.error("Ollama call failed", err);
+    }
     console.error("Ollama call failed", err);
     return buildFallback(promptMessages);
   }
