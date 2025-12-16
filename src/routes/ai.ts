@@ -34,6 +34,9 @@ async function runOllama(promptMessages: any[]) {
         model: resolvedModel,
         messages: promptMessages,
         stream: false,
+        options: {
+          num_predict: 128, // cap response length so calls return fast
+        },
       }),
       signal: controller.signal,
     });
