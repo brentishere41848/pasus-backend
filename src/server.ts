@@ -20,6 +20,8 @@ import dmRoutes from "./routes/dm.js";
 import verifyRoutes from "./routes/verify.js";
 import verifyResendRoutes from "./routes/verify-resend.js";
 import accessCodeRoutes from "./routes/accessCode.js";
+import discoveryRoutes from "./routes/discovery.js";
+import newsletterRoutes from "./routes/newsletter.js";
 
 console.debug("[PasusDebug:backend/src/server] Loaded");
 dotenv.config();
@@ -65,6 +67,8 @@ app.use("/api/dm", dmRoutes);
 // Mount resend first so /resend isn't captured by the base verify router
 app.use("/api/verify-email/resend", verifyResendRoutes);
 app.use("/api/verify-email", verifyRoutes);
+app.use("/api/discovery", discoveryRoutes);
+app.use("/api/newsletter", newsletterRoutes);
 
 const PORT = Number(process.env.PORT) || 4000;
 app.listen(PORT, '0.0.0.0', () => {

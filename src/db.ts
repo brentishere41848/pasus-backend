@@ -48,4 +48,12 @@ if (DB_HOST && DB_USER && DB_NAME) {
   throw new Error('Database configuration missing');
 }
 
+// Many hosted MySQL providers require SSL/TLS. Enable by default unless explicitly disabled.
+if (process.env.DB_SSL !== 'false') {
+  poolOptions = {
+    ...poolOptions,
+    ssl: { rejectUnauthorized: false }
+  } as PoolOptions;
+}
+
 export const pool = mysql.createPool(poolOptions);

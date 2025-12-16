@@ -44,7 +44,7 @@ export const sendVerificationEmail = async (to: string, token: string) => {
   </table>`;
 
   await resendClient.emails.send({
-    from: process.env.FROM_EMAIL || "no-reply@pasus.site",
+    from: process.env.FROM_EMAIL || "noreply@pasus.site",
     to,
     subject: `${brand} — Verify your email`,
     html,

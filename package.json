@@ -4,10 +4,11 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
+    "prestart": "npm run build",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "npm run build && node dist/__tests__/analytics.test.js",
+    "test": "npm run build && node dist/__tests__/analytics.test.js && node dist/__tests__/otp.test.js",
     "analytics:daily": "tsx src/jobs/analytics.ts daily",
     "analytics:yearly": "tsx src/jobs/analytics.ts yearly",
     "analytics:wrapped": "tsx src/jobs/analytics.ts wrapped",

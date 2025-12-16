@@ -40,7 +40,7 @@ router.post("/access-code/request", async (req, res) => {
       const brand = "Pasus";
       const html = `<p>Your ${brand} access code:</p><p style="font-size:20px;font-weight:700;">${code}</p><p>This code expires in 10 minutes.</p>`;
       await resendClient.emails.send({
-        from: process.env.FROM_EMAIL || "no-reply@pasus.site",
+        from: process.env.FROM_EMAIL || "noreply@pasus.site",
         to: email,
         subject: `${brand} access code`,
         html
