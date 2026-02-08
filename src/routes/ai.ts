@@ -24,6 +24,10 @@ async function runOllama(promptMessages: any[]) {
   const resolvedModel = (OLLAMA_MODEL || "llama3").trim();
   if (!resolvedModel) return buildFallback(promptMessages);
   try {
+    const controller = new AbortController();
+    // Allow long startup (model load) on first request
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60s
+
     const resp = await fetch(`${OLLAMA_HOST}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -31,8 +35,13 @@ async function runOllama(promptMessages: any[]) {
         model: resolvedModel,
         messages: promptMessages,
         stream: false,
+        options: {
+          num_predict: 64, // shorter responses to return faster
+        },
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     if (!resp.ok) {
       const txt = await resp.text();
       console.error("Ollama non-OK", txt);
@@ -41,7 +50,11 @@ async function runOllama(promptMessages: any[]) {
     const data = await resp.json();
     return data?.message?.content ? data : buildFallback(promptMessages);
   } catch (err) {
-    console.error("Ollama call failed", err);
+    if ((err as any)?.name === "AbortError") {
+      console.error("Ollama call timed out");
+    } else {
+      console.error("Ollama call failed", err);
+    }
     return buildFallback(promptMessages);
   }
 }
@@ -51,28 +64,7 @@ router.post("/chat", async (req, res) => {
   const resolvedModel = (model || OLLAMA_MODEL || "llama3").trim();
 
   try {
-    if (!resolvedModel) {
-      return res.json(buildFallback(messages));
-    }
-
-    const ollamaRes = await fetch(`${OLLAMA_HOST}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: resolvedModel,
-        messages,
-        stream: false
-      })
-    });
-
-    if (!ollamaRes.ok) {
-      const text = await ollamaRes.text();
-      console.error("Ollama returned non-OK", text || `status ${ollamaRes.status}`);
-      return res.json(buildFallback(messages));
-    }
-
-    const data = await ollamaRes.json();
-    // Persist AI session (best-effort)
+    const data = await runOllama(messages);
     if (userId && messages.length && data?.message?.content) {
       const prompt = messages[messages.length - 1]?.content || "";
       try {
@@ -80,14 +72,12 @@ router.post("/chat", async (req, res) => {
           'INSERT INTO ai_sessions (id,userId,prompt,response,mode,createdAt,completedAt) VALUES (UUID(),?,?,?,?,NOW(),NOW())',
           [userId, prompt, data.message.content, 'app']
         );
-      } catch (err) {
-        console.error("Failed to persist ai_session", err);
+      } catch (err: any) {
+        // Swallow FK or other persistence errors so AI responses still return
+        console.warn("Failed to persist ai_session", err?.code || err);
       }
     }
-    // Ollama returns { message: { content: "..."} }
-    if (!data?.message?.content) {
-      return res.json(buildFallback(messages));
-    }
+    if (!data?.message?.content) return res.json(buildFallback(messages));
     return res.json(data);
   } catch (err) {
     console.error("Ollama call failed", err);

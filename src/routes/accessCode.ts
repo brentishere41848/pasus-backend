@@ -36,11 +36,11 @@ router.post("/access-code/request", async (req, res) => {
       [code, email, expires, "signup access"]
     );
     if (resendClient) {
-      const base = process.env.APP_BASE_URL || "http://localhost:5173";
+      const base = process.env.APP_BASE_URL || "https://pasus.site";
       const brand = "Pasus";
       const html = `<p>Your ${brand} access code:</p><p style="font-size:20px;font-weight:700;">${code}</p><p>This code expires in 10 minutes.</p>`;
       await resendClient.emails.send({
-        from: process.env.FROM_EMAIL || "no-reply@pasus.site",
+        from: process.env.FROM_EMAIL || "noreply@pasus.site",
         to: email,
         subject: `${brand} access code`,
         html

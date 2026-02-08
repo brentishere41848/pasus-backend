@@ -20,13 +20,17 @@ import dmRoutes from "./routes/dm.js";
 import verifyRoutes from "./routes/verify.js";
 import verifyResendRoutes from "./routes/verify-resend.js";
 import accessCodeRoutes from "./routes/accessCode.js";
+import discoveryRoutes from "./routes/discovery.js";
+import newsletterRoutes from "./routes/newsletter.js";
 
 console.debug("[PasusDebug:backend/src/server] Loaded");
 dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Raise body limits so AI prompts or rich messages don't trip 413s
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
@@ -65,6 +69,8 @@ app.use("/api/dm", dmRoutes);
 // Mount resend first so /resend isn't captured by the base verify router
 app.use("/api/verify-email/resend", verifyResendRoutes);
 app.use("/api/verify-email", verifyRoutes);
+app.use("/api/discovery", discoveryRoutes);
+app.use("/api/newsletter", newsletterRoutes);
 
 const PORT = Number(process.env.PORT) || 4000;
 app.listen(PORT, '0.0.0.0', () => {

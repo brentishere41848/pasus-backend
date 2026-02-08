@@ -4,10 +4,11 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
+    "prestart": "npm run build",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "npm run build && node dist/__tests__/analytics.test.js",
+    "test": "npm run build && node dist/__tests__/analytics.test.js && node dist/__tests__/otp.test.js",
     "analytics:daily": "tsx src/jobs/analytics.ts daily",
     "analytics:yearly": "tsx src/jobs/analytics.ts yearly",
     "analytics:wrapped": "tsx src/jobs/analytics.ts wrapped",
@@ -18,6 +19,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.19.2",
     "mysql2": "^3.9.7",
+    "otplib": "^12.0.1",
     "resend": "^3.4.0",
     "uuid": "^11.1.0"
   },

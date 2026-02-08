@@ -9,6 +9,12 @@ PORT=4000
 DATABASE_URL=mysql://u453050691_pasus:Pasusdatabase2@auth-db1698.hstgr.io:3306/u453050691_pasus_db
 ADMIN_MASTER=PASUS_MASTER_KEY_845421FAD54AFAWF
 SKIP_MEMBERSHIP_CHECK=true   # optional: allow posting even if membership not recorded (dev)
+RESEND_API_KEY=...
+FROM_EMAIL=noreply@pasus.site
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
 ```
 
 ## Install & run
@@ -18,9 +24,17 @@ npm run build
 npm start
 ```
 
+Run the new OTP table migration if your database predates this change:
+```
+mysql < schema_login_otps.sql
+```
+
 ## API
 - `POST /api/auth/register` { email, password, username }
-- `POST /api/auth/login` { email, password }
+- `POST /api/auth/login` { email, password } → issues one-time code
+- `POST /api/auth/verify-otp` { otpToken, code } → finalizes login
+- `POST /api/auth/resend-otp` { otpToken }
+- `GET /api/auth/google` / `GET /api/auth/github` start OAuth (callbacks finalize and redirect with token)
 - `POST /api/auth/ping` { userId }
 - `POST /api/auth/admin/generate` { master } (master=ADMIN_MASTER) → one-time admin code
 - `POST /api/auth/admin/status` { adminCode, userId, status: good|warned|banned }

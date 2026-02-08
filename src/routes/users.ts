@@ -120,4 +120,62 @@ router.get("/search", async (req, res) => {
     }
 });
 
+// PUT /api/users/:userId — update basic profile fields
+router.put("/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const { displayName, avatarUrl, bio, email } = req.body as {
+        displayName?: string;
+        avatarUrl?: string;
+        bio?: string;
+        email?: string;
+    };
+
+    if (!displayName && !avatarUrl && !bio && !email) {
+        return res.status(400).json({ success: false, message: "No fields to update" });
+    }
+
+    try {
+        if (email) {
+            const [conflict] = await pool.query('SELECT id FROM users WHERE email=? AND id<>? LIMIT 1', [email, userId]);
+            if ((conflict as any[]).length) {
+                return res.status(409).json({ success: false, message: "Email already in use" });
+            }
+        }
+
+        const sets: string[] = [];
+        const params: any[] = [];
+        if (displayName) { sets.push('displayName=?'); params.push(displayName); }
+        if (avatarUrl !== undefined) { sets.push('avatarUrl=?'); params.push(avatarUrl); }
+        if (bio !== undefined) { sets.push('bio=?'); params.push(bio); }
+        if (email) { sets.push('email=?'); params.push(email); }
+        if (!sets.length) return res.status(400).json({ success: false, message: "No valid fields" });
+
+        params.push(userId);
+        await pool.query(`UPDATE users SET ${sets.join(', ')}, updatedAt=NOW() WHERE id=?`, params);
+
+        const [rows] = await pool.query(
+            'SELECT id,email,username,displayName,avatarUrl,bio,status,role,isPremium,lastSeen,createdAt,updatedAt,emailVerified,totpEnabled FROM users WHERE id=? LIMIT 1',
+            [userId]
+        );
+        const user = (rows as any[])[0];
+        if (user) user.twoFactorEnabled = Boolean(user.totpEnabled);
+        return res.json({ success: true, data: user });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ success: false, message: "Database error" });
+    }
+});
+
+// GET /api/users/count
+router.get("/count", async (_req, res) => {
+    try {
+        const [rows] = await pool.query("SELECT COUNT(*) as count FROM users");
+        const count = Number((rows as any[])[0]?.count || 0);
+        return res.json({ success: true, data: { count } });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ success: false, message: "Database error" });
+    }
+});
+
 export default router;

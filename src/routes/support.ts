@@ -37,7 +37,7 @@ router.post("/request", async (req, res) => {
     const ticketId = uuid();
     if (resendClient) {
       await resendClient.emails.send({
-        from: process.env.FROM_EMAIL || "no-reply@pasus.site",
+        from: process.env.FROM_EMAIL || "noreply@pasus.site",
         to: process.env.SUPPORT_INBOX || "support@pasus.site",
         subject: `[Support] ${subject}`,
         html: `<p><strong>Ticket:</strong> ${ticketId}</p>

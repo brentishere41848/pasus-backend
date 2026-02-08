@@ -8,9 +8,34 @@ export const resendClient = RESEND_API_KEY
   ? new Resend(RESEND_API_KEY)
   : null;
 
+export const sendVerificationCodeEmail = async (to: string, code: string) => {
+  if (!resendClient) throw new Error("RESEND_API_KEY not configured");
+  const brand = "Pasus";
+  const html = `
+  <table width="100%" bgcolor="#0b0b14" style="padding:32px 0;font-family:Arial,Helvetica,sans-serif;color:#e6e6ef;">
+    <tr><td align="center">
+      <table width="420" bgcolor="#121528" style="border:1px solid #1f2640;border-radius:16px;padding:28px;">
+        <tr><td align="center" style="font-size:22px;font-weight:800;color:#fff;padding-bottom:6px;">Verify your email</td></tr>
+        <tr><td align="center" style="font-size:14px;color:#bfc5d7;padding-bottom:18px;line-height:1.6;">
+          Enter this code in Pasus to complete signup:
+        </td></tr>
+        <tr><td align="center" style="font-size:28px;letter-spacing:6px;font-weight:800;color:#fff;padding-bottom:18px;">${code}</td></tr>
+        <tr><td align="center" style="font-size:12px;color:#7f85a3;">Expires in 15 minutes. Do not share this code.</td></tr>
+      </table>
+    </td></tr>
+  </table>`;
+
+  await resendClient.emails.send({
+    from: process.env.FROM_EMAIL || "noreply@pasus.site",
+    to,
+    subject: `${brand} — Your verification code`,
+    html,
+  });
+};
+
 export const sendVerificationEmail = async (to: string, token: string) => {
   if (!resendClient) throw new Error("RESEND_API_KEY not configured");
-  const base = process.env.APP_BASE_URL || "http://localhost:5173";
+  const base = process.env.APP_BASE_URL || "https://pasus.site";
   const verifyUrl = `${base.replace(/\/$/, "")}/verify-email?token=${encodeURIComponent(token)}`;
   console.log("[Pasus] Sending verification email to", to, "token", token);
   const brand = "Pasus";
@@ -44,7 +69,7 @@ export const sendVerificationEmail = async (to: string, token: string) => {
   </table>`;
 
   await resendClient.emails.send({
-    from: process.env.FROM_EMAIL || "no-reply@pasus.site",
+    from: process.env.FROM_EMAIL || "noreply@pasus.site",
     to,
     subject: `${brand} — Verify your email`,
     html,
